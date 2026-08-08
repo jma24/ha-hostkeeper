@@ -86,3 +86,33 @@ block:
       name: Property
       selector:
         text:
+
+sync:
+  name: Sync the active alert set
+  description: >-
+    Report every currently-active alert in one call, and close any task this
+    integration owns whose alert is no longer in the list.
+
+
+    WARNING — the list is authoritative. Anything previously filed through
+    "Report an alert" and absent here will be closed. If something else in your
+    config files alerts independently, use report/resolve for those rather than
+    mixing them with sync.
+  fields:
+    items:
+      name: Active alerts
+      description: >-
+        A list of objects, each needing a stable "id" and human "text". Optional
+        "due_days" becomes a due date (negative means overdue) and "domain" is
+        carried for future routing.
+      required: true
+      example: >-
+        [{"id": "water.filter.sediment", "text": "Sediment filter change due in 7
+        days.", "domain": "water", "due_days": 7}]
+      selector:
+        object:
+    property_id:
+      name: Property
+      description: Only needed when several HostKeeper properties are configured.
+      selector:
+        text:

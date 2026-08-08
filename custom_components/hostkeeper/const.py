@@ -22,6 +22,7 @@ CONF_PROPERTY_NAME: Final = "property_name"
 SERVICE_REPORT: Final = "report"
 SERVICE_RESOLVE: Final = "resolve"
 SERVICE_BLOCK: Final = "block"
+SERVICE_SYNC: Final = "sync"
 
 ATTR_ALERT_KEY: Final = "alert_key"
 ATTR_TITLE: Final = "title"
@@ -29,6 +30,9 @@ ATTR_DESCRIPTION: Final = "description"
 ATTR_TASK_TYPE: Final = "task_type"
 ATTR_REASON: Final = "reason"
 ATTR_TASK_ID: Final = "task_id"
+ATTR_ITEMS: Final = "items"
+ATTR_DUE_DAYS: Final = "due_days"
+ATTR_DOMAIN: Final = "domain"
 
 # Fired on the HA event bus when a task this integration owns reaches `done`
 # in HostKeeper. Automations listen for this to run the local half of the

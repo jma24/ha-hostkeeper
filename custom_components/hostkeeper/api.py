@@ -168,6 +168,7 @@ class HostKeeperClient:
         title: str,
         description: str | None = None,
         task_type: str = "maintenance",
+        due_date: str | None = None,
     ) -> tuple[dict[str, Any], bool]:
         """File a task for an alert. Returns ``(task, created)``.
 
@@ -195,6 +196,8 @@ class HostKeeperClient:
         }
         if description:
             payload["description"] = description
+        if due_date:
+            payload["due_date"] = due_date
 
         try:
             task = await self._invoke("tasks.create", payload, property_id=property_id)

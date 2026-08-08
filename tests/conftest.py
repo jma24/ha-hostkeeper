@@ -40,6 +40,18 @@ class FakeClient:
         found = await self.list_tasks(property_id, external_id=alert_key)
         return found[0] if found else None
 
+    async def report(self, property_id, *, alert_key, title, description=None,
+                     task_type="maintenance", due_date=None):
+        self._record("report", property_id, alert_key=alert_key, title=title,
+                     due_date=due_date)
+        for t in self.tasks:
+            if t.get("external_id") == alert_key:
+                return t, False
+        task = {"id": f"task-{len(self.tasks) + 1}", "external_id": alert_key,
+                "title": title, "status": "open", "due_date": due_date}
+        self.tasks.append(task)
+        return task, True
+
     async def set_status(self, property_id, task_id, status, *, block_reason=None):
         self._record("set_status", property_id, task_id, status, block_reason=block_reason)
         for task in self.tasks:

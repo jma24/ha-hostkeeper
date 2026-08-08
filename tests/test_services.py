@@ -179,3 +179,159 @@ async def test_report_reraises_a_genuine_validation_error() -> None:
         pytest.raises(HostKeeperValidationError),
     ):
         await client.report(PROPERTY_ID, alert_key=ALERT, title="x" * 999)
+
+
+# -- sync: assert the whole active set -------------------------------------
+
+
+async def test_sync_files_every_item(hass: HomeAssistant) -> None:
+    client = FakeClient([])
+    await _setup(hass, client)
+
+    await hass.services.async_call(
+        DOMAIN,
+        "sync",
+        {
+            "items": [
+                {"id": "water.filter.sediment", "text": "Sediment filter due in 7 days.",
+                 "domain": "water", "due_days": 7},
+                {"id": "pool.chemistry", "text": "The pool needs chemicals.",
+                 "domain": "pool", "due_days": None},
+            ]
+        },
+        blocking=True,
+    )
+
+    reported = {c[2]["alert_key"] for c in client.calls if c[0] == "report"}
+    assert reported == {"water.filter.sediment", "pool.chemistry"}
+
+
+async def test_sync_turns_due_days_into_a_due_date(hass: HomeAssistant) -> None:
+    """A watch item with a horizon is a scheduled job, not a nag."""
+    from datetime import timedelta
+
+    from homeassistant.util import dt as dt_util
+
+    client = FakeClient([])
+    await _setup(hass, client)
+
+    await hass.services.async_call(
+        DOMAIN,
+        "sync",
+        {"items": [{"id": "water.filter.carbon", "text": "Carbon filter due in 7 days.",
+                    "due_days": 7}]},
+        blocking=True,
+    )
+
+    call = next(c for c in client.calls if c[0] == "report")
+    expected = (dt_util.now().date() + timedelta(days=7)).isoformat()
+    assert call[2]["due_date"] == expected
+
+
+async def test_sync_closes_a_task_whose_alert_has_gone(hass: HomeAssistant) -> None:
+    """The reconcile half — what makes this outage-safe.
+
+    A key that stops being reported is an alert that cleared. It is cancelled,
+    not completed: nobody did the work.
+    """
+    client = FakeClient([
+        {"id": "task-1", "external_id": "pool.cassette", "title": "Cassette low",
+         "status": "open"},
+    ])
+    await _setup(hass, client)
+
+    await hass.services.async_call(
+        DOMAIN,
+        "sync",
+        {"items": [{"id": "water.delivery", "text": "Call for water."}]},
+        blocking=True,
+    )
+
+    closed = [c for c in client.calls if c[0] == "set_status"]
+    assert len(closed) == 1
+    assert closed[0][1][1] == "task-1"
+    assert closed[0][1][2] == "cancelled"
+
+
+async def test_sync_leaves_a_still_reported_alert_open(hass: HomeAssistant) -> None:
+    client = FakeClient([
+        {"id": "task-1", "external_id": "pool.cassette", "title": "Cassette low",
+         "status": "open"},
+    ])
+    await _setup(hass, client)
+
+    await hass.services.async_call(
+        DOMAIN,
+        "sync",
+        {"items": [{"id": "pool.cassette", "text": "Cassette low (4 days left)."}]},
+        blocking=True,
+    )
+
+    assert not [c for c in client.calls if c[0] == "set_status"]
+
+
+async def test_sync_reconciles_even_if_one_item_fails(hass: HomeAssistant) -> None:
+    """One bad item must not strand every other alert.
+
+    This is the shape of the bug the first live deploy hit: an error mid-loop
+    meant later domains were never evaluated at all.
+    """
+    from custom_components.hostkeeper.api import HostKeeperError
+
+    client = FakeClient([
+        {"id": "task-9", "external_id": "stale.key", "title": "Gone", "status": "open"},
+    ])
+    await _setup(hass, client)
+
+    original = client.report
+    calls: list[str] = []
+
+    async def flaky(property_id, *, alert_key, **kw):
+        calls.append(alert_key)
+        if alert_key == "bad.one":
+            raise HostKeeperError("server said no")
+        return await original(property_id, alert_key=alert_key, **kw)
+
+    client.report = flaky
+
+    await hass.services.async_call(
+        DOMAIN,
+        "sync",
+        {"items": [{"id": "bad.one", "text": "Explodes."},
+                   {"id": "good.one", "text": "Fine."}]},
+        blocking=True,
+    )
+
+    assert calls == ["bad.one", "good.one"]
+    closed = [c for c in client.calls if c[0] == "set_status"]
+    assert closed and closed[0][1][1] == "task-9"
+
+
+async def test_sync_does_not_duplicate_a_done_task_whose_alert_persists(
+    hass: HomeAssistant,
+) -> None:
+    """The duplicate hole, closed.
+
+    HostKeeper's uniqueness guard covers open tasks only — a task at `done`
+    does not block a second create. So an alert someone marked done while the
+    condition is still true would gain a fresh task on every sync, silently,
+    until the condition cleared. Verified against the live API before fixing.
+    """
+    client = FakeClient([
+        {"id": "task-1", "external_id": "water.filter.carbon",
+         "title": "Carbon filter change due in 7 days.", "status": "done"},
+    ])
+    await _setup(hass, client)
+
+    await hass.services.async_call(
+        DOMAIN,
+        "sync",
+        {"items": [{"id": "water.filter.carbon",
+                    "text": "Carbon filter change due in 7 days.", "due_days": 7}]},
+        blocking=True,
+    )
+
+    assert "report" not in client.names(), "must not file a second task"
+    # And it must not be force-closed either — the verification loop owns it.
+    assert "set_status" not in client.names()
+    assert len(client.tasks) == 1
