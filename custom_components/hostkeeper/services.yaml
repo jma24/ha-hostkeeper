@@ -1,0 +1,88 @@
+report:
+  name: Report an alert
+  description: >-
+    File a maintenance task for a condition that has become true. Safe to call
+    repeatedly — HostKeeper keeps one open task per alert key, so re-reporting a
+    live alert does nothing.
+  fields:
+    alert_key:
+      name: Alert key
+      description: >-
+        Stable identifier for this alert, unique per property. The entity id of
+        the sensor that raised it is a good choice.
+      required: true
+      example: binary_sensor.cistern_left_low
+      selector:
+        text:
+    title:
+      name: Title
+      description: >-
+        What needs doing, written for whoever will do it. This is what the
+        property manager reads in the app.
+      required: true
+      example: Call for a water delivery — about 3 days of water left
+      selector:
+        text:
+    description:
+      name: Description
+      description: Optional detail — readings, context, what to check first.
+      selector:
+        text:
+          multiline: true
+    task_type:
+      name: Task type
+      default: maintenance
+      selector:
+        select:
+          options: [maintenance, cleaning, inspection, other]
+    property_id:
+      name: Property
+      description: Only needed when several HostKeeper properties are configured.
+      selector:
+        text:
+
+resolve:
+  name: Resolve an alert
+  description: >-
+    The condition is no longer true. If the task was already marked done, this
+    confirms it and closes the loop; if it was still open, the alert cleared on
+    its own and the task is cancelled rather than completed — nobody did the
+    work, and the maintenance history should say so.
+  fields:
+    alert_key:
+      name: Alert key
+      required: true
+      example: binary_sensor.cistern_left_low
+      selector:
+        text:
+    property_id:
+      name: Property
+      description: Only needed when several HostKeeper properties are configured.
+      selector:
+        text:
+
+block:
+  name: Refute a completion
+  description: >-
+    The task was marked done but the condition persists — the fix did not take.
+    Records why, so the person who closed it sees what happened rather than a
+    task silently reopening.
+  fields:
+    alert_key:
+      name: Alert key
+      required: true
+      example: binary_sensor.door_slider_fault
+      selector:
+        text:
+    reason:
+      name: Reason
+      description: What the sensor still reports, and when it was checked.
+      required: true
+      example: Battery still reads 8% twenty minutes after the swap was marked done.
+      selector:
+        text:
+          multiline: true
+    property_id:
+      name: Property
+      selector:
+        text:

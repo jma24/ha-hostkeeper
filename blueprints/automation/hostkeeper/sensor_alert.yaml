@@ -1,0 +1,143 @@
+blueprint:
+  name: HostKeeper — sensor alert (verified)
+  description: >-
+    For conditions Home Assistant can see for itself: a low battery, a leak
+    sensor, a fault flag, a template that goes true when something needs doing.
+
+
+    While the condition is true a task is open in HostKeeper. If it clears on
+    its own, the task is cancelled — nobody did the work and the history should
+    not claim otherwise. When someone marks the task done, this automation
+    waits a settling period and then *checks*: if the sensor really cleared the
+    task is confirmed; if it is still asserting, the completion is refuted with
+    a reason, because the fix did not take.
+  domain: automation
+  homeassistant:
+    min_version: "2024.10.0"
+  input:
+    alert_entity:
+      name: Condition
+      description: >-
+        The entity that is "on" when this needs attention. A binary sensor, or a
+        template binary sensor for anything more involved.
+      selector:
+        entity:
+          domain: binary_sensor
+    alert_key:
+      name: Alert key
+      description: >-
+        Stable identifier for this alert. Use the condition's entity id unless
+        you have a reason not to — it is unique and self-describing.
+      selector:
+        text:
+    task_title:
+      name: Task title
+      description: >-
+        Written for whoever will do the work, not for you. Say what to do, and
+        avoid making them interpret a reading.
+      selector:
+        text:
+    task_description:
+      name: Task description
+      default: ""
+      selector:
+        text:
+          multiline: true
+    grace_minutes:
+      name: Settling time
+      description: >-
+        How long to wait after a completion before believing the sensor. A
+        replaced battery or a re-seated contact needs a cycle or two to report.
+        Too short and every completion bounces straight back at the person who
+        just did the work.
+      default: 15
+      selector:
+        number:
+          min: 1
+          max: 240
+          unit_of_measurement: min
+    heartbeat_minutes:
+      name: Re-assert every
+      description: >-
+        Periodic re-report, so a missed state change or an outage heals instead
+        of stranding a task. Calls are idempotent — this is cheap.
+      default: 30
+      selector:
+        number:
+          min: 5
+          max: 720
+          unit_of_measurement: min
+
+mode: queued
+max: 10
+
+trigger:
+  - platform: state
+    entity_id: !input alert_entity
+    to: "on"
+    id: raised
+  - platform: state
+    entity_id: !input alert_entity
+    to: "off"
+    id: cleared
+  - platform: homeassistant
+    event: start
+    id: heartbeat
+  - platform: time_pattern
+    minutes: !input heartbeat_minutes
+    id: heartbeat
+  - platform: event
+    event_type: hostkeeper_task_completed
+    id: completed
+
+variables:
+  alert_key: !input alert_key
+  alert_entity: !input alert_entity
+  grace_minutes: !input grace_minutes
+
+action:
+  - choose:
+      # Someone marked it done in HostKeeper. Settle, then verify.
+      - conditions:
+          - condition: trigger
+            id: completed
+          - condition: template
+            value_template: "{{ trigger.event.data.alert_key == alert_key }}"
+        sequence:
+          - delay:
+              minutes: "{{ grace_minutes }}"
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ is_state(alert_entity, 'on') }}"
+                sequence:
+                  - service: hostkeeper.block
+                    data:
+                      alert_key: "{{ alert_key }}"
+                      reason: >-
+                        {{ state_attr(alert_entity, 'friendly_name') or alert_entity }}
+                        is still reporting a problem
+                        {{ grace_minutes }} minutes after this was marked done.
+                        The fix may not have taken.
+            default:
+              - service: hostkeeper.resolve
+                data:
+                  alert_key: "{{ alert_key }}"
+
+      # Condition is true — make sure a task exists.
+      - conditions:
+          - condition: template
+            value_template: "{{ is_state(alert_entity, 'on') }}"
+        sequence:
+          - service: hostkeeper.report
+            data:
+              alert_key: "{{ alert_key }}"
+              title: !input task_title
+              description: !input task_description
+              task_type: maintenance
+
+    # Condition is false — nothing outstanding.
+    default:
+      - service: hostkeeper.resolve
+        data:
+          alert_key: "{{ alert_key }}"

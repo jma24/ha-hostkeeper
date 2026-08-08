@@ -1,0 +1,57 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to HostKeeper",
+        "description": "Create an API key in the HostKeeper app under Settings → API keys. Choose the “Property operations” preset and restrict the key to the property this Home Assistant looks after — it only needs to open and close tasks.",
+        "data": {
+          "api_key": "API key",
+          "base_url": "Server URL"
+        },
+        "data_description": {
+          "api_key": "Shown once when you create it, starting hk_live_ or hk_test_.",
+          "base_url": "Leave as-is unless you run your own HostKeeper."
+        }
+      },
+      "property": {
+        "title": "Choose a property",
+        "description": "This key can reach more than one property. Pick the one this Home Assistant is installed at.",
+        "data": {
+          "property_id": "Property"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Update your HostKeeper key",
+        "description": "The key for {property} is no longer accepted — it may have been revoked or have expired. Create a new one in the app and paste it here.",
+        "data": {
+          "api_key": "API key"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach HostKeeper. Check the server URL and this machine's internet connection.",
+      "invalid_auth": "HostKeeper rejected this key. Check it was copied whole, and that it has not been revoked.",
+      "no_properties": "The key works but can't reach any property. It is probably restricted to a property the account no longer has access to.",
+      "wrong_property": "This key cannot reach the property this entry is set up for. Create one restricted to that property.",
+      "unknown": "Something unexpected went wrong. Check the Home Assistant log."
+    },
+    "abort": {
+      "already_configured": "This property is already set up.",
+      "reauth_successful": "HostKeeper reconnected."
+    }
+  },
+  "services": {
+    "report": {
+      "name": "Report an alert",
+      "description": "File a maintenance task for a condition that has become true. Safe to call repeatedly."
+    },
+    "resolve": {
+      "name": "Resolve an alert",
+      "description": "The condition is no longer true. Confirms a completed task, or cancels one that cleared on its own."
+    },
+    "block": {
+      "name": "Refute a completion",
+      "description": "The task was marked done but the condition persists."
+    }
+  }
+}

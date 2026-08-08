@@ -1,0 +1,128 @@
+blueprint:
+  name: HostKeeper — manual task (actuated)
+  description: >-
+    For work Home Assistant cannot observe but must be told about: changing a
+    filter, switching which cistern the house draws from, calling the water
+    truck. No sensor reports these — Home Assistant tracks them in helpers, and
+    a button or a script is what records that they happened.
+
+
+    While the condition is true a task is open in HostKeeper. When someone marks
+    it done, this automation performs the local change you nominate below —
+    stamping the date, flipping the selector, whatever your setup uses — and
+    then confirms the task. Because the action clears the condition, the alert
+    stops being true on its own afterwards.
+
+
+    The action is yours: this integration never needs to know that
+    `script.filter_sediment_mark_changed` exists.
+  domain: automation
+  homeassistant:
+    min_version: "2024.10.0"
+  input:
+    condition_entity:
+      name: Condition
+      description: >-
+        The entity that is "on" while this is outstanding — usually a template
+        binary sensor over a date helper ("last changed more than six months
+        ago").
+      selector:
+        entity:
+          domain: binary_sensor
+    alert_key:
+      name: Alert key
+      selector:
+        text:
+    task_title:
+      name: Task title
+      selector:
+        text:
+    task_description:
+      name: Task description
+      default: ""
+      selector:
+        text:
+          multiline: true
+    completion_action:
+      name: When HostKeeper marks this done
+      description: >-
+        What to run locally. Typically the same script or button you would press
+        yourself — `script.filter_sediment_mark_changed`, an
+        `input_select.select_option`, an `input_datetime.set_datetime`.
+      default: []
+      selector:
+        action:
+    heartbeat_minutes:
+      name: Re-assert every
+      default: 30
+      selector:
+        number:
+          min: 5
+          max: 720
+          unit_of_measurement: min
+
+mode: queued
+max: 10
+
+trigger:
+  - platform: state
+    entity_id: !input condition_entity
+    to: "on"
+    id: raised
+  - platform: state
+    entity_id: !input condition_entity
+    to: "off"
+    id: cleared
+  - platform: homeassistant
+    event: start
+    id: heartbeat
+  - platform: time_pattern
+    minutes: !input heartbeat_minutes
+    id: heartbeat
+  - platform: event
+    event_type: hostkeeper_task_completed
+    id: completed
+
+variables:
+  alert_key: !input alert_key
+  condition_entity: !input condition_entity
+
+action:
+  - choose:
+      # Marked done in HostKeeper: do the thing, then confirm.
+      #
+      # Order matters. The action clears the condition, and a cleared condition
+      # would otherwise look like the alert resolving on its own — which would
+      # file real maintenance as "cancelled, no work done" and quietly corrupt
+      # the history. Confirming first means the reconcile that follows finds
+      # nothing left to close.
+      - conditions:
+          - condition: trigger
+            id: completed
+          - condition: template
+            value_template: "{{ trigger.event.data.alert_key == alert_key }}"
+        sequence:
+          - choose: []
+            default: !input completion_action
+          - service: hostkeeper.resolve
+            data:
+              alert_key: "{{ alert_key }}"
+
+      # Outstanding — make sure a task exists.
+      - conditions:
+          - condition: template
+            value_template: "{{ is_state(condition_entity, 'on') }}"
+        sequence:
+          - service: hostkeeper.report
+            data:
+              alert_key: "{{ alert_key }}"
+              title: !input task_title
+              description: !input task_description
+              task_type: maintenance
+
+    # Not outstanding. If a task is still open it was done by other means —
+    # someone pressed the button directly, say — so close it out.
+    default:
+      - service: hostkeeper.resolve
+        data:
+          alert_key: "{{ alert_key }}"
