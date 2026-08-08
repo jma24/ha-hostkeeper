@@ -104,8 +104,10 @@ action:
           - condition: template
             value_template: "{{ trigger.event.data.alert_key == alert_key }}"
         sequence:
+          # `!input` is substituted at load time, so the schema sees a number.
+          # A template here fails validation — `delay` wants a real value.
           - delay:
-              minutes: "{{ grace_minutes }}"
+              minutes: !input grace_minutes
           - choose:
               - conditions:
                   - condition: template

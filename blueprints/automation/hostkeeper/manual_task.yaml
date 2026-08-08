@@ -102,8 +102,13 @@ action:
           - condition: template
             value_template: "{{ trigger.event.data.alert_key == alert_key }}"
         sequence:
-          - choose: []
-            default: !input completion_action
+          # `!input` substitutes a whole sequence, so it has to be the value of
+          # a `sequence:` key rather than spliced into a list of steps.
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ true }}"
+                sequence: !input completion_action
           - service: hostkeeper.resolve
             data:
               alert_key: "{{ alert_key }}"
