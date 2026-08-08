@@ -16,8 +16,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import asyncio
+
 import aiohttp
-import async_timeout
 
 from .const import SOURCE_SYSTEM
 
@@ -78,7 +79,7 @@ class HostKeeperClient:
             body["property_id"] = property_id
 
         try:
-            async with async_timeout.timeout(_TIMEOUT_SECONDS):
+            async with asyncio.timeout(_TIMEOUT_SECONDS):
                 response = await self._session.post(
                     url,
                     json=body,
