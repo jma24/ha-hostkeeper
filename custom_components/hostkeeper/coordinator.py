@@ -94,7 +94,14 @@ class HostKeeperCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             previous = self._last_status.get(alert_key)
 
             if self._primed and status == STATUS_DONE and previous != STATUS_DONE:
-                _LOGGER.debug("task for %s reached done — firing event", alert_key)
+                # info, not debug: a task being completed is the one event
+                # worth seeing in a log without turning on debug for everything.
+                _LOGGER.info(
+                    "task for %s reached done (task %s) — firing %s",
+                    alert_key,
+                    task.get("id"),
+                    EVENT_TASK_COMPLETED,
+                )
                 self.hass.bus.async_fire(
                     EVENT_TASK_COMPLETED,
                     {
