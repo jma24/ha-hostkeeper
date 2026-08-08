@@ -209,6 +209,19 @@ class HostKeeperClient:
                 raise
             return existing, False
 
+    async def update_fields(
+        self, property_id: str, task_id: str, **fields: Any
+    ) -> dict[str, Any]:
+        """Patch presentational fields on an existing task.
+
+        Titles and due dates are set when a task is first filed and would
+        otherwise be frozen there forever — so retuning the wording in config,
+        or a due date that genuinely moves, would never reach the task someone
+        is actually looking at.
+        """
+        payload: dict[str, Any] = {"task_id": task_id, **fields}
+        return await self._invoke("tasks.update", payload, property_id=property_id)
+
     async def set_status(
         self,
         property_id: str,

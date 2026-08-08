@@ -335,3 +335,74 @@ async def test_sync_does_not_duplicate_a_done_task_whose_alert_persists(
     # And it must not be force-closed either — the verification loop owns it.
     assert "set_status" not in client.names()
     assert len(client.tasks) == 1
+
+
+async def test_sync_prefers_title_over_text(hass: HomeAssistant) -> None:
+    """`text` is the dashboard line; `title` is the job.
+
+    "Sediment filter change due in 7 days." is wrong on a task — it duplicates
+    the due date and is stale by tomorrow. The task wants "Change the sediment
+    filter" with a due date beside it.
+    """
+    client = FakeClient([])
+    await _setup(hass, client)
+
+    await hass.services.async_call(
+        DOMAIN, "sync",
+        {"items": [{"id": "water.filter.sediment",
+                    "text": "Sediment filter change due in 7 days.",
+                    "title": "Change the sediment filter", "due_days": 7}]},
+        blocking=True,
+    )
+
+    call = next(c for c in client.calls if c[0] == "report")
+    assert call[2]["title"] == "Change the sediment filter"
+
+
+async def test_sync_refreshes_a_stale_title(hass: HomeAssistant) -> None:
+    """Retuning wording in config must reach tasks already filed.
+
+    Titles are set at first file. Without this, every existing task keeps its
+    original wording forever and only newly-filed ones get the improvement.
+    """
+    client = FakeClient([
+        {"id": "task-1", "external_id": "water.filter.sediment",
+         "title": "Sediment filter change due in 7 days.", "status": "open",
+         "due_date": "2026-08-15"},
+    ])
+    await _setup(hass, client)
+
+    await hass.services.async_call(
+        DOMAIN, "sync",
+        {"items": [{"id": "water.filter.sediment", "text": "…",
+                    "title": "Change the sediment filter", "due_days": 7}]},
+        blocking=True,
+    )
+
+    call = next(c for c in client.calls if c[0] == "update_fields")
+    assert call[2]["title"] == "Change the sediment filter"
+    assert "report" not in client.names()
+
+
+async def test_sync_does_not_churn_an_unchanged_task(hass: HomeAssistant) -> None:
+    """No write when nothing a human would read has changed."""
+    from datetime import timedelta
+
+    from homeassistant.util import dt as dt_util
+
+    due = (dt_util.now().date() + timedelta(days=7)).isoformat()
+    client = FakeClient([
+        {"id": "task-1", "external_id": "water.filter.sediment",
+         "title": "Change the sediment filter", "status": "open", "due_date": due},
+    ])
+    await _setup(hass, client)
+
+    await hass.services.async_call(
+        DOMAIN, "sync",
+        {"items": [{"id": "water.filter.sediment", "text": "…",
+                    "title": "Change the sediment filter", "due_days": 7}]},
+        blocking=True,
+    )
+
+    assert "update_fields" not in client.names()
+    assert "report" not in client.names()

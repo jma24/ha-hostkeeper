@@ -52,6 +52,13 @@ class FakeClient:
         self.tasks.append(task)
         return task, True
 
+    async def update_fields(self, property_id, task_id, **fields):
+        self._record("update_fields", property_id, task_id, **fields)
+        for t in self.tasks:
+            if t["id"] == task_id:
+                t.update(fields)
+        return {"id": task_id, **fields}
+
     async def set_status(self, property_id, task_id, status, *, block_reason=None):
         self._record("set_status", property_id, task_id, status, block_reason=block_reason)
         for task in self.tasks:

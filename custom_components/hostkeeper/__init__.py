@@ -94,6 +94,10 @@ _SYNC_SCHEMA = vol.Schema(
                     {
                         vol.Required("id"): cv.string,
                         vol.Required("text"): cv.string,
+                        # The human line for a dashboard. `title` is the task
+                        # name — stable, without the countdown that `text`
+                        # carries and that the due date expresses properly.
+                        vol.Optional("title"): vol.Any(cv.string, None),
                         vol.Optional("domain"): vol.Any(cv.string, None),
                         vol.Optional("due_days"): vol.Any(vol.Coerce(int), None),
                     },
@@ -300,6 +304,8 @@ def _async_register_services(hass: HomeAssistant) -> None:
 
         for key, item in active.items():
             existing = known.get(key)
+            title = item.get("title") or item["text"]
+
             if existing is not None and existing.get("status") == STATUS_DONE:
                 # Claimed complete, condition still true. That is the
                 # verification moment, not a new job: leave it for the
@@ -320,10 +326,25 @@ def _async_register_services(hass: HomeAssistant) -> None:
                     dt_util.now().date() + timedelta(days=int(due_days))
                 ).isoformat()
             try:
+                if existing is not None and existing.get("status") in OPEN_STATUSES:
+                    # Already open. Only touch it if what the host would read
+                    # has actually changed — an unconditional patch every pass
+                    # would churn the task's history for nothing.
+                    changed = {}
+                    if existing.get("title") != title:
+                        changed["title"] = title
+                    if due_date and existing.get("due_date") != due_date:
+                        changed["due_date"] = due_date
+                    if changed:
+                        await coordinator.client.update_fields(
+                            coordinator.property_id, existing["id"], **changed
+                        )
+                    continue
+
                 await coordinator.client.report(
                     coordinator.property_id,
                     alert_key=key,
-                    title=item["text"],
+                    title=title,
                     description=item.get("description"),
                     due_date=due_date,
                 )
