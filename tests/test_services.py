@@ -11,6 +11,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.hostkeeper.api import (
     HostKeeperClient,
+    HostKeeperConflictError,
     HostKeeperValidationError,
 )
 from custom_components.hostkeeper.const import (
@@ -128,22 +129,28 @@ async def test_block_records_the_reason(hass: HomeAssistant) -> None:
 # -- the client's own idempotency ------------------------------------------
 
 
-async def test_report_falls_back_to_lookup_on_conflict() -> None:
+@pytest.mark.parametrize(
+    "conflict",
+    [
+        HostKeeperConflictError("409 already represents"),
+        HostKeeperValidationError("422 already represents"),
+    ],
+    ids=["409", "422"],
+)
+async def test_report_falls_back_to_lookup_on_conflict(conflict: Exception) -> None:
     """A duplicate report resolves the existing task by lookup, not by parsing.
 
-    HostKeeper refuses a second open task for the same key and says so in
-    prose that names the existing id. Reading that id out of the sentence
-    would break the first time it is reworded, so we ask instead.
+    Both status codes are covered deliberately. The server documents and
+    returns 409; an earlier build returned 422. Handling only one turns every
+    heartbeat re-assert into a red automation error — which is exactly what
+    happened on the first live deploy, where the whole repeat loop aborted on
+    the first already-open domain and the ones after it were never evaluated.
     """
     client = HostKeeperClient(session=None, base_url="https://x", api_key="k")
     existing = {"id": "task-1", "external_id": ALERT, "status": "open"}
 
     with (
-        patch.object(
-            HostKeeperClient,
-            "_invoke",
-            side_effect=HostKeeperValidationError("already represents"),
-        ),
+        patch.object(HostKeeperClient, "_invoke", side_effect=conflict),
         patch.object(
             HostKeeperClient, "find_by_alert_key", AsyncMock(return_value=existing)
         ),

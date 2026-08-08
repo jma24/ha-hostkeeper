@@ -40,6 +40,14 @@ class HostKeeperAuthError(HostKeeperError):
     """
 
 
+class HostKeeperConflictError(HostKeeperError):
+    """An open task already represents this alert key (409).
+
+    Not a failure — it is the uniqueness guard doing its job, and the expected
+    outcome of re-reporting a live alert. `report` turns it into a lookup.
+    """
+
+
 class HostKeeperValidationError(HostKeeperError):
     """The server rejected the payload (422)."""
 
@@ -95,6 +103,8 @@ class HostKeeperClient:
 
                 if response.status in (401, 403):
                     raise HostKeeperAuthError(detail or f"HTTP {response.status}")
+                if response.status == 409:
+                    raise HostKeeperConflictError(detail or "conflict")
                 if response.status == 422:
                     raise HostKeeperValidationError(detail or "unprocessable")
                 if response.status >= 400:
@@ -166,6 +176,11 @@ class HostKeeperClient:
         refuses a duplicate, so re-reporting a still-active alert is safe and
         cheap — we simply look up the task that already represents it.
 
+        Both 409 and 422 are treated as the uniqueness guard. 409 is what the
+        server documents and returns; 422 is accepted because an earlier build
+        used it, and a client that only understands one of them turns every
+        heartbeat into an automation error. Ask about the alert either way.
+
         We resolve the existing task with a lookup rather than by parsing the
         id out of the error prose, which would break the first time that
         sentence is reworded.
@@ -184,10 +199,10 @@ class HostKeeperClient:
         try:
             task = await self._invoke("tasks.create", payload, property_id=property_id)
             return task, True
-        except HostKeeperValidationError:
+        except (HostKeeperConflictError, HostKeeperValidationError):
             existing = await self.find_by_alert_key(property_id, alert_key)
             if existing is None:
-                # A real validation failure, not the uniqueness guard.
+                # A real failure, not the uniqueness guard.
                 raise
             return existing, False
 
